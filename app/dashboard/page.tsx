@@ -11,8 +11,6 @@ interface User {
   name: string | null;
 }
 
-const API_URL = '';
-
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -32,7 +30,11 @@ export default function Dashboard() {
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      setUser(session.user);
+      setUser({
+        id: session.user.id,
+        email: session.user.email || '',
+        name: session.user.user_metadata?.name,
+      });
       loadResumes(session.access_token);
     } else {
       setShowAuthModal(true);
@@ -42,7 +44,7 @@ export default function Dashboard() {
 
   const loadResumes = async (token: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/resume`, {
+      const res = await fetch('/api/resume', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -60,24 +62,41 @@ export default function Dashboard() {
     
     try {
       if (isSignup) {
-        const res = await fetch(`${API_URL}/api/auth/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, name }),
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { name: name || email.split('@')[0] } }
         });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.message || 'An error occurred');
+        
+        if (signUpError) {
+          setError(signUpError.message);
           return;
         }
-        await handleSubmit({ preventDefault: () => {} } as any);
+        
+        if (data.user) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email || '',
+            name: data.user.user_metadata?.name,
+          });
+          setShowAuthModal(false);
+        }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          setError(error.message);
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        
+        if (signInError) {
+          setError(signInError.message);
           return;
         }
-        setUser(data.user);
+        
+        setUser({
+          id: data.user.id,
+          email: data.user.email || '',
+          name: data.user.user_metadata?.name,
+        });
         setShowAuthModal(false);
         loadResumes(data.session.access_token);
       }
@@ -99,7 +118,7 @@ export default function Dashboard() {
     if (!session) return;
 
     try {
-      await fetch(`${API_URL}/api/resume/${id}`, {
+      await fetch(`/api/resume/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -232,7 +251,7 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <p className="font-medium text-gray-900 capitalize">{r.template}</p>
-                          <p className="text-xs text-gray-500">{new Date(r.createdAt).toLocaleDateString()}</p>
+                          <p className="text-xs text-gray-500">{new Date(r.created_at).toLocaleDateString()}</p>
                         </div>
                       </div>
                       <div className="flex gap-2">
