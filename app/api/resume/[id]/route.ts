@@ -1,71 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
+import { createClient } from '@supabase/supabase-js';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const getUserId = (request: NextRequest): number | null => {
-  const auth = request.headers.get('authorization');
-  if (!auth) return null;
-  try {
-    const token = auth.replace('Bearer ', '');
-    const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
-    return decoded.id;
-  } catch {
-    return null;
-  }
-};
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const userId = getUserId(request);
-  if (!userId) {
-    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-  }
-
-  try {
-    const { id } = params;
-    const result = await pool.query(
-      'SELECT * FROM resumes WHERE id = $1 AND user_id = $2',
-      [id, userId]
-    );
-
-    if (result.rows.length === 0) {
-      return NextResponse.json({ message: 'Resume not found' }, { status: 404 });
-    }
-
-    const resume = result.rows[0];
-    return NextResponse.json({
-      id: resume.id,
-      template: resume.template,
-      data: resume.data,
-      createdAt: resume.created_at,
-    });
-  } catch (error) {
-    console.error('Get resume error:', error);
-    return NextResponse.json({ message: 'Server error' }, { status: 500 });
-  }
-}
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const userId = getUserId(request);
-  if (!userId) {
+  const authHeader = request.headers.get('authorization');
+  const token = authHeader?.replace('Bearer ', '');
+
+  if (!token) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
-  try {
-    const { id } = params;
-    await pool.query('DELETE FROM resumes WHERE id = $1 AND user_id = $2', [id, userId]);
-    return NextResponse.json({ message: 'Resume deleted' });
-  } catch (error) {
-    console.error('Delete resume error:', error);
-    return NextResponse.json({ message: 'Server error' }, { status: 500 });
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+  if (error || !user) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
+
+  await supabaseAdmin
+    .from('resumes')
+    .delete()
+    .eq('id', params.id)
+    .eq('user_id', user.id);
+
+  return NextResponse.json({ message: 'Resume deleted' });
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const authHeader = request.headers.get('authorization');
+  const token = authHeader?.replace('Bearer ', '');
+
+  if (!token) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+  if (error || !user) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
+
+  const resume = await supabaseAdmin
+    .from('resumes')
+    .select('*')
+    .eq('id', params.id)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!resume.data) {
+    return NextResponse.json({ message: 'Resume not found' }, { status: 404 });
+  }
+
+  return NextResponse.json(resume.data);
 }

@@ -3,16 +3,15 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 interface User {
-  id: number;
+  id: string;
   email: string;
   name: string | null;
-  isPremium: boolean;
-  downloadsToday: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = '';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -24,33 +23,18 @@ export default function Dashboard() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [resumes, setResumes] = useState<{ id: number; template: string; data: any; createdAt: string }[]>([]);
+  const [resumes, setResumes] = useState<any[]>([]);
 
   useEffect(() => {
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setLoading(false);
-      setShowAuthModal(true);
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/api/user/profile`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const userData = await res.json();
-        setUser(userData);
-        loadResumes(token);
-      } else {
-        localStorage.removeItem('token');
-        setShowAuthModal(true);
-      }
-    } catch {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      setUser(session.user);
+      loadResumes(session.access_token);
+    } else {
       setShowAuthModal(true);
     }
     setLoading(false);
@@ -75,47 +59,49 @@ export default function Dashboard() {
     setError('');
     
     try {
-      const res = await fetch(`${API_URL}/api/auth/${isSignup ? 'signup' : 'login'}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email, 
-          password, 
-          ...(isSignup ? { name } : {}) 
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.message || 'An error occurred');
-        return;
+      if (isSignup) {
+        const res = await fetch(`${API_URL}/api/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.message || 'An error occurred');
+          return;
+        }
+        await handleSubmit({ preventDefault: () => {} } as any);
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          setError(error.message);
+          return;
+        }
+        setUser(data.user);
+        setShowAuthModal(false);
+        loadResumes(data.session.access_token);
       }
-
-      localStorage.setItem('token', data.token);
-      setUser(data.user);
-      setShowAuthModal(false);
-      loadResumes(data.token);
     } catch (err) {
       setError('Failed to connect to server');
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setResumes([]);
-    router.push('/');
+    window.location.href = '/';
   };
 
   const deleteResume = async (id: number) => {
     if (!confirm('Delete this resume?')) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
 
     try {
       await fetch(`${API_URL}/api/resume/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
       setResumes(resumes.filter((r) => r.id !== id));
     } catch (err) {
@@ -184,7 +170,6 @@ export default function Dashboard() {
             <span className="font-semibold text-gray-900">ResumeTools</span>
           </Link>
           <div className="flex items-center gap-4">
-            {user?.isPremium && <span className="px-3 py-1 bg-amber-500 text-white text-xs font-medium rounded-full">PRO</span>}
             {user && <button onClick={handleLogout} className="text-gray-600 hover:text-gray-900">Sign out</button>}
           </div>
         </div>
@@ -204,8 +189,8 @@ export default function Dashboard() {
           <>
             <div className="grid grid-cols-4 gap-4 mb-8">
               <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Total Resumes</p><p className="text-2xl font-bold text-gray-900">{resumes.length}</p></div>
-              <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Downloads Today</p><p className="text-2xl font-bold text-gray-900">{user.downloadsToday}/2</p></div>
-              <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Account</p><p className="text-2xl font-bold text-gray-900">{user.isPremium ? 'Pro' : 'Free'}</p></div>
+              <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Downloads Today</p><p className="text-2xl font-bold text-gray-900">0/2</p></div>
+              <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Account</p><p className="text-2xl font-bold text-gray-900">Free</p></div>
               <div className="bg-white rounded-xl p-5 shadow-sm"><p className="text-sm text-gray-500">Profile</p><p className="text-lg font-bold text-gray-900 truncate">{user.name || user.email}</p></div>
             </div>
 

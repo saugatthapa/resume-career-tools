@@ -1,30 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-import bcrypt from 'bcryptjs';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        name VARCHAR(255),
-        is_premium BOOLEAN DEFAULT FALSE,
-        downloads_today INT DEFAULT 0,
-        last_download_date DATE,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-  } catch (err) {
-    console.error('Table creation error:', err);
-  }
-
   try {
     const body = await request.json();
     const { email, password, name } = body;
@@ -33,30 +10,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Email and password required' }, { status: 400 });
     }
 
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.rows.length > 0) {
-      return NextResponse.json({ message: 'User already exists' }, { status: 400 });
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name: name || email.split('@')[0] }
+    });
+
+    if (error) {
+      if (error.message.includes('already')) {
+        return NextResponse.json({ message: 'User already exists' }, { status: 400 });
+      }
+      return NextResponse.json({ message: error.message }, { status: 400 });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    const result = await pool.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, is_premium',
-      [email, hashedPassword, name || email.split('@')[0]]
-    );
-
-    const user = result.rows[0];
-    const token = Buffer.from(JSON.stringify({ id: user.id, email: user.email })).toString('base64');
-
     return NextResponse.json({ 
-      token, 
       user: { 
-        id: user.id, 
-        email: user.email, 
-        name: user.name, 
-        isPremium: user.is_premium,
-        downloadsToday: 0,
-        lastDownloadDate: null,
+        id: data.user.id, 
+        email: data.user.email, 
+        name: data.user.user_metadata?.name,
       } 
     }, { status: 201 });
   } catch (error) {
