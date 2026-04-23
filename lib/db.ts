@@ -5,7 +5,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-const initDb = async () => {
+export async function initDb() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -27,23 +27,10 @@ const initDb = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-
-    const cols = await pool.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'users' AND column_name = 'password'
-    `);
-    
-    if (cols.rows.length === 0) {
-      await pool.query('ALTER TABLE users ADD COLUMN password VARCHAR(255)');
-      console.log('Added password column');
-    }
-
     console.log('Database tables initialized');
   } catch (err) {
     console.error('Database initialization error:', err);
   }
-};
-
-initDb();
+}
 
 export default pool;
