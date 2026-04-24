@@ -212,6 +212,8 @@ export default function Dashboard() {
               <span className="font-bold text-xl text-gray-900">ResumeCraft</span>
             </Link>
             <div className="flex items-center gap-4">
+              <Link href="/my-resumes" className="text-gray-600 hover:text-gray-900 text-sm font-medium">My Resumes</Link>
+              <Link href="/billing" className="text-gray-600 hover:text-gray-900 text-sm font-medium">Billing</Link>
               {user && (
                 <div className="flex items-center space-x-4">
                   <div className="text-right">
