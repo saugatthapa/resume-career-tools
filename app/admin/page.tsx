@@ -1,13 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+let supabaseInstance: ReturnType<typeof createClient> | null = null;
+
+const getSupabaseClient = () => {
+  if (!supabaseInstance) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supabaseUrl && supabaseServiceKey) {
+      supabaseInstance = createClient(supabaseUrl, supabaseServiceKey);
+    }
+  }
+  return supabaseInstance;
+};
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -42,17 +51,21 @@ export default function AdminDashboard() {
   }, [isAuthenticated]);
 
   const fetchStats = async () => {
-    const [usersRes, resumesRes, templatesRes] = await Promise.all([
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    
+    const [usersRes, resumesRes, templatesRes, premiumRes] = await Promise.all([
       supabase.from('user_profiles').select('*', { count: 'exact' }),
       supabase.from('resumes').select('*', { count: 'exact' }),
       supabase.from('resume_templates').select('*', { count: 'exact' }),
+      supabase.from('user_profiles').select('id', { count: 'exact' }).eq('is_premium', true),
     ]);
 
     setStats({
       users: usersRes.count || 0,
       resumes: resumesRes.count || 0,
       templates: templatesRes.count || 0,
-      premium: usersRes.data?.filter(u => u.is_premium).length || 0,
+      premium: premiumRes.count || 0,
     });
   };
 
@@ -242,6 +255,8 @@ function TemplateManager() {
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
 
   const fetchTemplates = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
     const { data } = await supabase
       .from('resume_templates')
       .select('*')
@@ -256,11 +271,15 @@ function TemplateManager() {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this template?')) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
     await supabase.from('resume_templates').delete().eq('id', id);
     fetchTemplates();
   };
 
   const handleTogglePremium = async (template: any) => {
+    const supabase = getSupabaseClient() as any;
+    if (!supabase) return;
     await supabase
       .from('resume_templates')
       .update({ is_premium: !template.is_premium })
@@ -364,6 +383,9 @@ function TemplateModal({ template, onClose, onSave }: { template?: any; onClose:
 
   const handleSubmit = async () => {
     setSaving(true);
+    const supabase = getSupabaseClient() as any;
+    if (!supabase) { setSaving(false); return; }
+    
     if (template?.id) {
       await supabase.from('resume_templates').update(form).eq('id', template.id);
     } else {
@@ -453,6 +475,8 @@ function UserManager() {
   }, []);
 
   const fetchUsers = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
     const { data } = await supabase
       .from('user_profiles')
       .select('*')
