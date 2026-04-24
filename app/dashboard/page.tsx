@@ -173,6 +173,14 @@ export default function Dashboard() {
                   isSignup ? 'Create Account' : 'Sign In'
                 )}
               </button>
+
+              {!isSignup && (
+                <div className="mt-4 text-center">
+                  <Link href="/forgot-password" className="text-sm text-gray-500 hover:text-[#1F4D3F]">
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
             </form>
             
             <div className="mt-6 text-center">
