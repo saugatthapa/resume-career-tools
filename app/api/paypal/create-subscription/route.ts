@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { user_id, plan_id = 'P-5month' } = body;
+    const { user_id } = body;
 
     const clientId = process.env.PAYPAL_CLIENT_ID;
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'PayPal not configured' }, { status: 500 });
     }
 
-    // Get PayPal access token
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://resumecraft.app';
+
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     
     const tokenRes = await fetch(`https://api-m.${mode}.paypal.com/v1/oauth2/token`, {
@@ -33,48 +34,49 @@ export async function POST(request: NextRequest) {
 
     const accessToken = tokenData.access_token;
 
-    // Create subscription
-    const subscriptionRes = await fetch(`https://api-m.${mode}.paypal.com/v1/billing/subscriptions`, {
+    const orderRes = await fetch(`https://api-m.${mode}.paypal.com/v2/checkout/orders`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'PayPal-Request-Id': `sub-${Date.now()}-${user_id}`,
       },
       body: JSON.stringify({
-        plan_id: plan_id,
-        subscriber: {
-          name: { given_name: 'Customer' },
-          email_address: 'customer@example.com',
-        },
-        custom_id: user_id,
+        intent: 'CAPTURE',
+        purchase_units: [{
+          reference_id: user_id,
+          description: 'ResumeCraft Pro Subscription - $5/month',
+          amount: {
+            currency_code: 'USD',
+            value: '5.00'
+          }
+        }],
         application_context: {
           brand_name: 'ResumeCraft',
-          landing_page: 'BILLING',
-          user_action: 'SUBSCRIBE',
-          return_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://resumecraft.app'}/billing?success=true`,
-          cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://resumecraft.app'}/billing?cancelled=true`,
-        },
+          user_action: 'CONTINUE',
+          return_url: `${siteUrl}/billing?success=true`,
+          cancel_url: `${siteUrl}/billing?cancelled=true`
+        }
       }),
     });
 
-    const subscriptionData = await subscriptionRes.json();
+    const orderData = await orderRes.json();
 
-    if (subscriptionData.id) {
-      // Find approval URL
-      const approvalUrl = subscriptionData.links?.find((link: any) => link.rel === 'approve')?.href;
+    if (orderData.id) {
+      const approvalUrl = orderData.links?.find((link: any) => link.rel === 'approve')?.href;
       
       return NextResponse.json({
-        subscriptionId: subscriptionData.id,
+        orderId: orderData.id,
         approvalUrl,
-        status: 'pending',
       });
     }
 
-    return NextResponse.json({ message: subscriptionData.message || 'Failed to create subscription' }, { status: 400 });
+    return NextResponse.json({ 
+      message: orderData.message || 'Failed to create order',
+      details: orderData
+    }, { status: 400 });
 
   } catch (error) {
-    console.error('PayPal subscription error:', error);
+    console.error('PayPal order error:', error);
     return NextResponse.json({ message: 'Server error' }, { status: 500 });
   }
 }
